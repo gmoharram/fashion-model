@@ -5,6 +5,13 @@ training/data/
 training/dataset/
 
 
+### MacOS ###
+*.DS_Store
+
+### Tensorboard ###
+training/lightning_logs/
+
+
 
 ### Python ###
 # Byte-compiled / optimized / DLL files

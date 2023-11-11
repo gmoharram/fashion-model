@@ -42,14 +42,42 @@ class FashionAutoEncoder(pl.LightningModule):
         for param in self.resnet_frozen.parameters():  # freeze pretrained parameters
             param.requires_grad = False
 
-        self.decoder = nn.Sequential(  # define trainable "decoder" architecture
-            nn.Conv2d(256, 128, kernel_size=1),
-            nn.ConvTranspose2d(128, 64, kernel_size=3, stride=1),
+        if hparams["num_batches"] == 1:
+            norm_layer = nn.InstanceNorm1d
+        else:
+            norm_layer = nn.BatchNorm1d
+
+        self.encoder_compress = nn.Sequential(
+            nn.MaxPool2d(
+                5,
+                stride=3,
+            ),
+            nn.Conv2d(256, 16, kernel_size=1),
             nn.BatchNorm2d(
-                64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True
+                16, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True
             ),
             nn.ReLU(inplace=True),
-            nn.ConvTranspose2d(64, TARGET_CHANNELS, kernel_size=3, stride=1),
+        )
+
+        self.encoder_fc = nn.Sequential(
+            nn.Linear(in_features=13 * 10 * 16, out_features=128, bias=False),
+            norm_layer(num_features=128, momentum=0.1),
+            nn.ReLU(True),
+        )
+
+        self.decoder_fc = nn.Sequential(
+            nn.Linear(in_features=128, out_features=13 * 10 * 16, bias=False),
+            norm_layer(num_features=13 * 10 * 16, momentum=0.1),
+            nn.ReLU(True),
+        )
+
+        self.decoder = nn.Sequential(  # define trainable "decoder" architecture
+            nn.Conv2d(16, 8, kernel_size=1),
+            nn.BatchNorm2d(
+                8, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True
+            ),
+            nn.ReLU(inplace=True),
+            nn.ConvTranspose2d(8, TARGET_CHANNELS, kernel_size=3, stride=1),
             nn.BatchNorm2d(
                 TARGET_CHANNELS,
                 eps=1e-05,
@@ -59,12 +87,35 @@ class FashionAutoEncoder(pl.LightningModule):
             ),
             nn.ReLU(inplace=True),
             nn.ConvTranspose2d(
-                TARGET_CHANNELS, TARGET_CHANNELS, kernel_size=(36, 20), stride=14
+                TARGET_CHANNELS, TARGET_CHANNELS, kernel_size=(30, 15), stride=14
             ),
+            nn.BatchNorm2d(
+                TARGET_CHANNELS,
+                eps=1e-05,
+                momentum=0.1,
+                affine=True,
+                track_running_stats=True,
+            ),
+            nn.ReLU(inplace=True),
+            nn.ConvTranspose2d(
+                TARGET_CHANNELS, TARGET_CHANNELS, kernel_size=(5, 6), stride=3
+            ),
+            nn.BatchNorm2d(
+                TARGET_CHANNELS,
+                eps=1e-05,
+                momentum=0.1,
+                affine=True,
+                track_running_stats=True,
+            ),
+            nn.ReLU(inplace=True),
         )
 
     def forward(self, x):
-        x = self.decoder(self.resnet_trainable(self.resnet_frozen(x)))
+        x = self.resnet_trainable(self.resnet_frozen(x))
+        x = self.encoder_compress(x)
+        x = self.encoder_fc(x.view(x.size(0), -1))
+        x = self.decoder_fc(x)
+        x = self.decoder(x.view(x.size(0), 16, 13, 10))
 
         return x
 
